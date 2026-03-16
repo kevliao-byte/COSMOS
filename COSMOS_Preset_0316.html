@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>COSMOS Playground</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;overflow:hidden;background:#080808;font-family:'IBM Plex Mono',monospace;}
+    #root{height:100vh;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const{useState,useRef,useEffect,useCallback}=React;
+
+function mulberry32(seed){
+  let s=(seed|0)||1;
+  return()=>{s=(s+0x6D2B79F5)|0;let t=Math.imul(s^(s>>>15),1|s);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};
+}
+function makeNoise2D(seed){
+  const rng=mulberry32((seed*9301+49297)|0);
+  const perm=Array.from({length:256},(_,i)=>i);
+  for(let i=255;i>0;i--){const j=Math.floor(rng()*(i+1));[perm[i],perm[j]]=[perm[j],perm[i]];}
+  const p=[...perm,...perm];
+  const G=[[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+  const fade=t=>t*t*t*(t*(t*6-15)+10),lerp=(a,b,t)=>a+t*(b-a),dot2=(g,x,y)=>g[0]*x+g[1]*y;
+  return(x,y)=>{
+    const xi=Math.floor(x)&255,yi=Math.floor(y)&255,xf=x-Math.floor(x),yf=y-Math.floor(y);
+    const u=fade(xf),v=fade(yf);
+    const aa=p[p[xi]+yi],ab=p[p[xi]+yi+1],ba=p[p[xi+1]+yi],bb=p[p[xi+1]+yi+1];
+    return lerp(lerp(dot2(G[aa&7],xf,yf),dot2(G[ba&7],xf-1,yf),u),lerp(dot2(G[ab&7],xf,yf-1),dot2(G[bb&7],xf-1,yf-1),u),v);
+  };
+}
+function boxBlur(pixels,w,h,radius){
+  const r=Math.max(1,Math.min(Math.round(radius),24));
+  const tmp=new Uint8ClampedArray(pixels.length),out=new Uint8ClampedArray(pixels.length);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let rr=0,g=0,b=0,n=0;for(let dx=-r;dx<=r;dx++){const nx=Math.min(w-1,Math.max(0,x+dx)),i=(y*w+nx)*4;rr+=pixels[i];g+=pixels[i+1];b+=pixels[i+2];n++;}const o=(y*w+x)*4;tmp[o]=rr/n;tmp[o+1]=g/n;tmp[o+2]=b/n;tmp[o+3]=pixels[o+3];}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let rr=0,g=0,b=0,n=0;for(let dy=-r;dy<=r;dy++){const ny=Math.min(h-1,Math.max(0,y+dy)),i=(ny*w+x)*4;rr+=tmp[i];g+=tmp[i+1];b+=tmp[i+2];n++;}const o=(y*w+x)*4;out[o]=rr/n;out[o+1]=g/n;out[o+2]=b/n;out[o+3]=tmp[o+3];}
+  return out;
+}
+
+/* ── Brand palette (all 24) ───────────────────────────────────────────────── */
+const BRAND=[
+  "#F6FF43","#000000","#FFFFFF","#022A26","#141C00","#201009",
+  "#093F3A","#1F2A04","#2C1A11","#17504A","#2C3A0C","#3D271D",
+  "#3F6868","#55613A","#836A5F","#8AA8A8","#80896B","#AB9287",
+  "#C2CECE","#C1C7B5","#D6CBC7","#E8EDED","#DFE1DA","#EAE7E6"
+];
+
+/* ── 3 extra colours added to every scheme ────────────────────────────────── */
+const EXTRA=["#F6FF43","#000000","#FFFFFF"];
+
+const STANDARD_SCHEMES=[
+  {name:"Teal",
+   swatches:[...EXTRA,"#022A26","#093F3A","#17504A","#3F6868","#8AA8A8","#C2CECE","#E8EDED"],
+   default:{palette:["#022A26"],pcts:[100],bg:"#E8EDED"}},
+  {name:"Moss",
+   swatches:[...EXTRA,"#141C00","#1F2A04","#2C3A0C","#55613A","#80896B","#C1C7B5","#DFE1DA"],
+   default:{palette:["#141C00"],pcts:[100],bg:"#DFE1DA"}},
+  {name:"Warm",
+   swatches:[...EXTRA,"#201009","#2C1A11","#3D271D","#836A5F","#AB9287","#D6CBC7","#EAE7E6"],
+   default:{palette:["#201009"],pcts:[100],bg:"#EAE7E6"}}
+];
+
+const BOLD_SCHEMES=[
+  {name:"Teal",
+   swatches:[...EXTRA,"#022A26","#093F3A","#17504A","#3F6868","#8AA8A8","#C2CECE","#E8EDED"],
+   default:{palette:["#022A26","#17504A","#8AA8A8"],pcts:[60,25,15],bg:"#E8EDED"}},
+  {name:"Moss",
+   swatches:[...EXTRA,"#141C00","#1F2A04","#2C3A0C","#55613A","#80896B","#C1C7B5","#DFE1DA"],
+   default:{palette:["#141C00","#2C3A0C","#C1C7B5"],pcts:[60,25,15],bg:"#DFE1DA"}},
+  {name:"Warm",
+   swatches:[...EXTRA,"#201009","#2C1A11","#3D271D","#836A5F","#AB9287","#D6CBC7","#EAE7E6"],
+   default:{palette:["#201009","#3D271D","#D6CBC7"],pcts:[60,25,15],bg:"#EAE7E6"}}
+];
+
+const BASE_BOLD_CFG={
+  gridSize:7,dotMin:0.3,dotMax:5.7,offsetMag:0.5,offsetFreq:0.12,
+  gridSeed:0,gridJitter:0.08,colorSeed:7,colorMode:"weighted",
+  layout:"square",invert:false,driftRadius:0,driftSpeed:1.0,
+  blackPt:0,whitePt:0.82,gamma:2.45,blurRadius:0,
+  rippleEnabled:false,rippleStrength:2.5,rippleSpeed:1.0,rippleWidth:0.18,rippleDecay:0.6
+};
+
+const STANDARD_IMG_CFG={gridSize:10,dotMin:0.3,dotMax:5.5,offsetMag:1.2,offsetFreq:0.01,
+  gridSeed:0,gridJitter:0.05,colorSeed:7,colorMode:"single",
+  layout:"square",invert:false,driftRadius:0,driftSpeed:1.0,
+  blackPt:15/255,whitePt:1.0,gamma:1.15,blurRadius:0,
+  rippleEnabled:false,rippleStrength:2.5,rippleSpeed:1.0,rippleWidth:0.18,rippleDecay:0.6};
+
+const STANDARD_VID_CFG={...STANDARD_IMG_CFG,
+  blackPt:0,whitePt:1.0,gamma:1.25,gridSize:15,dotMin:0.3,dotMax:7.5};
+
+const PRESETS=[
+  {
+    name:"Standard",desc:"Balanced — as calibrated",
+    isStandard:true,isBold:false,isExpressive:false,
+    cfg:{...STANDARD_IMG_CFG},
+    palette:["#022A26"],pcts:[100],bg:"#E8EDED"
+  },
+  {
+    name:"Expressive",desc:"Large dots, weighted colour schemes",
+    isStandard:false,isBold:true,isExpressive:false,
+    cfg:{...BASE_BOLD_CFG, gridSize:10, dotMin:0.3, dotMax:5.5, blackPt:15/255, whitePt:1.0, gamma:1.15, blurRadius:0, gridJitter:0.05, offsetMag:1.2, offsetFreq:0.01},
+    palette:[...BOLD_SCHEMES[0].default.palette],
+    pcts:[...BOLD_SCHEMES[0].default.pcts],
+    bg:BOLD_SCHEMES[0].default.bg
+  },
+  {
+    name:"Custom",desc:"Full palette, unrestricted colour",
+    isStandard:false,isBold:false,isExpressive:true,
+    cfg:{gridSize:10,dotMin:0.3,dotMax:5.5,offsetMag:1.2,offsetFreq:0.01,
+         gridSeed:42,gridJitter:0.05,colorSeed:7,colorMode:"weighted",
+         layout:"square",invert:false,driftRadius:0,driftSpeed:1.0,
+         blackPt:15/255,whitePt:1.0,gamma:1.15,blurRadius:0,
+         gridSeed:42,gridJitter:0.15,colorSeed:7,colorMode:"weighted",
+         layout:"square",invert:false,driftRadius:0,driftSpeed:1.0,
+         blackPt:0.04,whitePt:0.96,gamma:1.2,blurRadius:0,
+         rippleEnabled:false,rippleStrength:2.5,rippleSpeed:1.0,rippleWidth:0.18,rippleDecay:0.6},
+    palette:["#022A26","#17504A","#F6FF43"],pcts:[70,20,10],bg:"#E8EDED"
+  }
+];
+
+function pickColor(lum,palette,mode,pcts,colorRng,rndPalette){
+  if(!palette.length)return"#fff";
+  if(mode==="single")return palette[0];
+  if(mode==="threshold")return palette[Math.min(Math.floor(lum*palette.length),palette.length-1)];
+  if(mode==="weighted"){const tot=pcts.reduce((a,b)=>a+(b||0),0)||100;let rv=colorRng()*tot,cum=0;for(let i=0;i<palette.length;i++){cum+=pcts[i]||0;if(rv<=cum)return palette[i];}return palette[palette.length-1];}
+  if(mode==="random"){const rp=rndPalette&&rndPalette.length?rndPalette:palette;return rp[Math.floor(colorRng()*rp.length)];}
+  return palette[Math.floor(colorRng()*palette.length)];
+}
+function buildRandomPalette(seed){
+  const rng=mulberry32((seed*6271+1399)|0),pool=[...BRAND];
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(rng()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  return pool.slice(0,2+Math.floor(rng()*2));
+}
+function gridSquare(W,H,gs){const pts=[],cols=Math.ceil(W/gs)+2,rows=Math.ceil(H/gs)+2;for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)pts.push({bx:c*gs,by:r*gs,col:c,row:r});return pts;}
+function gridHex(W,H,gs){const pts=[],rh=gs*0.866,rows=Math.ceil(H/rh)+2,cols=Math.ceil(W/gs)+2;for(let r=0;r<rows;r++){const off=(r%2)*gs*0.5;for(let c=0;c<cols;c++)pts.push({bx:c*gs+off,by:r*rh,col:c,row:r});}return pts;}
+function gridRadial(W,H,gs){const pts=[],cx=W/2,cy=H/2,maxR=Math.sqrt(cx*cx+cy*cy)+gs;pts.push({bx:cx,by:cy,col:0,row:0});let ring=1;while(ring*gs<maxR){const r=ring*gs,n=Math.max(6,Math.round(2*Math.PI*r/gs));for(let i=0;i<n;i++){const a=(2*Math.PI*i)/n;pts.push({bx:cx+r*Math.cos(a),by:cy+r*Math.sin(a),col:ring,row:i});}ring++;}return pts;}
+
+function renderDots(canvas,pixels,srcW,srcH,cfg,palette,pcts,time){
+  time=time||0;
+  const{gridSize,dotMin,dotMax,offsetMag,offsetFreq,gridSeed,gridJitter,colorSeed,colorMode,bgColor,layout,invert,driftRadius,driftSpeed,blackPt,whitePt,gamma,rippleEnabled,rippleStrength,rippleSpeed,rippleWidth,rippleDecay}=cfg;
+  if(canvas.width!==srcW)canvas.width=srcW;if(canvas.height!==srcH)canvas.height=srcH;
+  const ctx=canvas.getContext("2d");ctx.fillStyle=bgColor||"#000";ctx.fillRect(0,0,srcW,srcH);
+  const noise=makeNoise2D(gridSeed),colorRng=mulberry32(colorSeed),jRng=mulberry32(gridSeed*31+7),phaseRng=mulberry32(gridSeed*53+19);
+  const rndPalette=colorMode==="random"?buildRandomPalette(colorSeed):null;
+  const pts=layout==="hex"?gridHex(srcW,srcH,gridSize):layout==="radial"?gridRadial(srcW,srcH,gridSize):gridSquare(srcW,srcH,gridSize);
+  const dr=driftRadius||0,ds=driftSpeed||1,bp=blackPt??0,wp=whitePt??1,gm=gamma??1;
+  const maxDist=Math.sqrt((srcW/2)**2+(srcH/2)**2);
+  const rspeed=(rippleSpeed||1)*maxDist*0.55,rstr=rippleStrength||2.5,rw=(rippleWidth||0.18)*maxDist,rdecay=rippleDecay??0.6;
+  for(const{bx,by,col,row}of pts){
+    const nx=noise(col*offsetFreq,row*offsetFreq)*offsetMag,ny=noise(col*offsetFreq+73.1,row*offsetFreq+91.7)*offsetMag;
+    const jAmt=gridJitter*gridSize*0.5,jx=jAmt>0?(jRng()*2-1)*jAmt:0,jy=jAmt>0?(jRng()*2-1)*jAmt:0;
+    const phX=phaseRng()*Math.PI*2,phY=phaseRng()*Math.PI*2,phX2=phaseRng()*Math.PI*2;
+    const ddx=dr>0?Math.sin(time*ds+phX)*dr*0.7+Math.sin(time*ds*0.6+phX2)*dr*0.3:0;
+    const ddy=dr>0?Math.cos(time*ds+phY)*dr*0.7+Math.cos(time*ds*0.7+phX)*dr*0.3:0;
+    const cx=bx+nx+jx+ddx,cy=by+ny+jy+ddy;
+    const sx=Math.max(0,Math.min(srcW-1,Math.round(bx))),sy=Math.max(0,Math.min(srcH-1,Math.round(by)));
+    const i4=(sy*srcW+sx)*4;
+    let lum=(0.299*pixels[i4]+0.587*pixels[i4+1]+0.114*pixels[i4+2])/255;
+    if(invert)lum=1-lum;lum=Math.max(0,Math.min(1,(lum-bp)/Math.max(0.001,wp-bp)));
+    if(gm!==1)lum=Math.pow(lum,1/gm);
+    let radius=dotMin+(1-lum)*(dotMax-dotMin);
+    if(rippleEnabled){
+      const rx=cx-srcW/2,ry=cy-srcH/2,dist=Math.sqrt(rx*rx+ry*ry);
+      const wavefront=(time*rspeed)%(maxDist+rw*2),delta=dist-wavefront;
+      let rm=1;
+      if(Math.abs(delta)<rw){const t=1-Math.abs(delta)/rw;rm=1+(t*t*(3-2*t))*(rstr-1);}
+      else if(delta<0){rm=Math.max(0.15,1-Math.min(1,-delta/(rw*3))*rdecay);}
+      radius=Math.max(0.15,radius*rm);
+    }
+    if(radius<0.35)continue;
+    ctx.fillStyle=pickColor(lum,palette,colorMode,pcts,colorRng,rndPalette);
+    ctx.beginPath();ctx.arc(cx,cy,radius,0,Math.PI*2);ctx.fill();
+  }
+}
+function buildSVG(pixels,srcW,srcH,cfg,palette,pcts){
+  const{gridSize,dotMin,dotMax,offsetMag,offsetFreq,gridSeed,gridJitter,colorSeed,colorMode,bgColor,layout,invert,blackPt,whitePt,gamma}=cfg;
+  const noise=makeNoise2D(gridSeed),colorRng=mulberry32(colorSeed),jRng=mulberry32(gridSeed*31+7);
+  const pts=layout==="hex"?gridHex(srcW,srcH,gridSize):layout==="radial"?gridRadial(srcW,srcH,gridSize):gridSquare(srcW,srcH,gridSize);
+  const bp=blackPt??0,wp=whitePt??1,gm=gamma??1;
+  const out=[`<svg xmlns="http://www.w3.org/2000/svg" width="${srcW}" height="${srcH}"><rect width="${srcW}" height="${srcH}" fill="${bgColor}"/>`];
+  for(const{bx,by,col,row}of pts){
+    const nx=noise(col*offsetFreq,row*offsetFreq)*offsetMag,ny=noise(col*offsetFreq+73.1,row*offsetFreq+91.7)*offsetMag;
+    const jAmt=gridJitter*gridSize*0.5,jx=jAmt>0?(jRng()*2-1)*jAmt:0,jy=jAmt>0?(jRng()*2-1)*jAmt:0;
+    const cx=bx+nx+jx,cy=by+ny+jy;
+    const sx=Math.max(0,Math.min(srcW-1,Math.round(bx))),sy=Math.max(0,Math.min(srcH-1,Math.round(by)));
+    const i4=(sy*srcW+sx)*4;
+    let lum=(0.299*pixels[i4]+0.587*pixels[i4+1]+0.114*pixels[i4+2])/255;
+    if(invert)lum=1-lum;lum=Math.max(0,Math.min(1,(lum-bp)/Math.max(0.001,wp-bp)));
+    if(gm!==1)lum=Math.pow(lum,1/gm);
+    const r=dotMin+(1-lum)*(dotMax-dotMin);if(r<0.35)continue;
+    out.push(`<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${r.toFixed(2)}" fill="${pickColor(lum,palette,colorMode,pcts,colorRng)}"/>`);
+  }
+  out.push("</svg>");return out.join("");
+}
+function makeDemoPixels(W,H){
+  const data=new Uint8ClampedArray(W*H*4);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){
+    const i=(y*W+x)*4,dx=x/W-0.5,dy=y/H-0.5,dist=Math.sqrt(dx*dx+dy*dy)*2;
+    const wave=Math.sin(x*0.05)*Math.cos(y*0.05)*0.5+0.5,lum=Math.max(0,Math.min(255,(1-dist)*180+wave*80));
+    data[i]=lum;data[i+1]=lum*0.9;data[i+2]=lum*0.7;data[i+3]=255;
+  }
+  return data;
+}
+const calcDotBounds=gs=>({minMin:0.3,maxMin:gs*0.5,minMax:gs*0.4,maxMax:gs*1.5});
+
+/* ── Slider with click-to-type ────────────────────────────────────────────── */
+function Slider({label,value,min,max,step=1,onChange,display,warn}){
+  const shown=display!=null?display:(step<1?value.toFixed(2):Math.round(value));
+  const[editing,setEditing]=useState(false),[draft,setDraft]=useState("");
+  const inputRef=useRef(null);
+  const startEdit=()=>{setDraft(String(shown));setEditing(true);setTimeout(()=>inputRef.current?.select(),0);};
+  const commitEdit=()=>{
+    setEditing(false);
+    const raw=parseFloat(String(draft).replace(/[^0-9.\-]/g,""));
+    if(!isNaN(raw))onChange(Math.max(min,Math.min(max,raw)));
+  };
+  const keyDown=e=>{if(e.key==="Enter")commitEdit();if(e.key==="Escape")setEditing(false);};
+  return(
+    <label style={{display:"block",marginBottom:14,cursor:"pointer",userSelect:"none"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+        <span style={{fontSize:10,letterSpacing:"0.09em",textTransform:"uppercase",color:warn?"#f84":"#DFE1DA"}}>{label}</span>
+        {editing
+          ?<input ref={inputRef} type="text" value={draft} onChange={e=>setDraft(e.target.value)} onBlur={commitEdit} onKeyDown={keyDown} onClick={e=>e.preventDefault()}
+            style={{width:52,background:"#1a1a0a",border:"1px solid #F6FF43",borderRadius:3,padding:"1px 5px",color:"#F6FF43",fontSize:10,fontFamily:"'IBM Plex Mono',monospace",outline:"none",textAlign:"right"}}/>
+          :<span onClick={e=>{e.preventDefault();startEdit();}} title="Click to type a value"
+            style={{fontSize:10,color:warn?"#f84":"#DFE1DA",fontVariantNumeric:"tabular-nums",cursor:"text",borderBottom:"1px dashed #444",paddingBottom:1,minWidth:30,textAlign:"right"}}>{shown}</span>
+        }
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(parseFloat(e.target.value))} className="rng" style={{width:"100%",cursor:"pointer",display:"block"}}/>
+      {warn&&<div style={{fontSize:9,color:"#f84",marginTop:4,lineHeight:1.5}}>{warn}</div>}
+    </label>
+  );
+}
+function SeedRow({label,value,onChange}){
+  return(
+    <div style={{marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+        <span style={{fontSize:10,letterSpacing:"0.09em",textTransform:"uppercase",color:"#DFE1DA"}}>{label}</span>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:10,color:"#DFE1DA"}}>{value}</span>
+          <button onClick={()=>onChange(Math.floor(Math.random()*9999))} style={{padding:"1px 7px",background:"#181818",border:"1px solid #2a2a2a",color:"#555",borderRadius:3,cursor:"pointer",fontSize:13,fontFamily:"inherit",lineHeight:1.4}}>⟳</button>
+        </div>
+      </div>
+      <input type="range" min={0} max={9999} step={1} value={value} onChange={e=>onChange(parseInt(e.target.value))} className="rng" style={{width:"100%",cursor:"pointer",display:"block"}}/>
+    </div>
+  );
+}
+function Btn({children,onClick,active,col="#F6FF43",sx={}}){
+  return(
+    <button onClick={onClick} style={{padding:"5px 10px",fontSize:9,letterSpacing:"0.09em",textTransform:"uppercase",background:active?col:"#181818",color:active?"#111":"#666",border:`1px solid ${active?col:"#2a2a2a"}`,borderRadius:3,cursor:"pointer",fontFamily:"inherit",...sx}}>
+      {children}
+    </button>
+  );
+}
+function Toggle({label,value,onChange}){
+  return(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,cursor:"pointer"}} onClick={()=>onChange(!value)}>
+      <span style={{fontSize:10,letterSpacing:"0.09em",textTransform:"uppercase",color:"#DFE1DA"}}>{label}</span>
+      <div style={{width:32,height:16,borderRadius:8,background:value?"#F6FF43":"#222",position:"relative",transition:"background .2s",border:"1px solid #333",flexShrink:0}}>
+        <div style={{position:"absolute",top:2,left:value?16:2,width:10,height:10,borderRadius:"50%",background:value?"#111":"#fff",transition:"left .2s"}}/>
+      </div>
+    </div>
+  );
+}
+
+/* ── Swatch pickers ───────────────────────────────────────────────────────── */
+function SwatchPicker({swatches,selected,onSelect,exclude=[]}){
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:3}}>
+      {swatches.map(c=>{
+        const isSel=selected===c,isExcl=exclude.includes(c)&&!isSel;
+        return(
+          <div key={c} onClick={()=>!isExcl&&onSelect(c)} title={c}
+            style={{width:"100%",aspectRatio:"1",borderRadius:3,background:c,
+              border:isSel?"2px solid #F6FF43":"1.5px solid #1e1e1e",
+              cursor:isExcl?"not-allowed":"pointer",opacity:isExcl?0.2:1,
+              outline:isSel?"2px solid #F6FF43":"none",outlineOffset:1}}/>
+        );
+      })}
+    </div>
+  );
+}
+function BrandPicker({selected,onSelect,exclude=[]}){
+  return(
+    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:3}}>
+      {BRAND.map(c=>{
+        const isSel=selected===c,isExcl=exclude.includes(c)&&!isSel;
+        return(
+          <div key={c} onClick={()=>!isExcl&&onSelect(c)} title={c}
+            style={{width:"100%",aspectRatio:"1",borderRadius:3,background:c,
+              border:isSel?"2px solid #F6FF43":"1.5px solid #1e1e1e",
+              cursor:isExcl?"not-allowed":"pointer",opacity:isExcl?0.2:1,
+              outline:isSel?"2px solid #F6FF43":"none",outlineOffset:1}}/>
+        );
+      })}
+    </div>
+  );
+}
+
+function ColourSlot({color,pct,onPctChange,onRemove,isOnly,showPct,onClick,isEditing}){
+  const[pd,setPd]=useState(String(Math.round(pct)));
+  useEffect(()=>setPd(String(Math.round(pct))),[pct]);
+  return(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,cursor:"pointer",
+      borderRadius:3,padding:"3px 5px",background:isEditing?"#1a1a0a":"transparent",
+      border:isEditing?"1px solid #2a2a00":"1px solid transparent"}}>
+      <div style={{width:20,height:20,borderRadius:3,background:color,border:"1.5px solid #2a2a2a",flexShrink:0}}/>
+      <span style={{fontSize:10,color:"#DFE1DA",fontFamily:"monospace",flex:1}}>{color}</span>
+      {showPct&&<>
+        <input type="number" value={pd} min={0} max={100}
+          onClick={e=>e.stopPropagation()}
+          onChange={e=>{setPd(e.target.value);onPctChange(parseFloat(e.target.value)||0);}}
+          onBlur={e=>{const n=parseFloat(e.target.value);if(!isNaN(n)&&n>=0&&n<=100)onPctChange(n);else setPd(String(Math.round(pct)));}}
+          onKeyDown={e=>e.key==="Enter"&&e.target.blur()}
+          style={{width:42,background:"#141414",border:"1px solid #2a2a2a",borderRadius:3,padding:"2px 5px",color:"#aaa",fontSize:11,fontFamily:"monospace",outline:"none",textAlign:"right"}}/>
+        <span style={{fontSize:10,color:"#444"}}>%</span>
+      </>}
+      {!isOnly&&<button onClick={e=>{e.stopPropagation();onRemove();}} style={{width:15,height:15,borderRadius:"50%",background:"#1e1e1e",border:"1px solid #2a2a2a",color:"#555",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>×</button>}
+    </div>
+  );
+}
+
+const SEC={borderBottom:"1px solid #1a1a1a",paddingBottom:16,marginBottom:16};
+const LBL={display:"block",fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",color:"#DFE1DA",marginBottom:9};
+
+/* ── Shared scheme panel logic ────────────────────────────────────────────── */
+function SchemeColourPanel({schemes,palette,pcts,bg,setPalette,setPcts,setBg,videoMode,showPct=true,singleOnly=false}){
+  const[schemeIdx,setSchemeIdx]=useState(()=>{
+    const idx=schemes.findIndex(s=>s.default.bg===bg||palette.every(c=>s.swatches.includes(c)));
+    return idx>=0?idx:0;
+  });
+  const[editingSlot,setEditingSlot]=useState(null);
+  const scheme=schemes[schemeIdx];
+
+  const applyScheme=idx=>{
+    setSchemeIdx(idx);
+    const s=schemes[idx];
+    if(singleOnly){
+      setPalette([s.default.palette[0]]);
+      setPcts([100]);
+    } else {
+      setPalette([...s.default.palette]);
+      setPcts([...s.default.pcts]);
+    }
+    setBg(s.default.bg);
+    setEditingSlot(null);
+  };
+  const updatePct=(i,v)=>setPcts(prev=>{const n=[...prev];n[i]=Math.max(0,Math.min(100,v));return n;});
+  const normalizePcts=()=>setPcts(prev=>{const t=prev.reduce((a,b)=>a+b,0);return t?prev.map(p=>parseFloat(((p/t)*100).toFixed(1))):prev.map(()=>100/prev.length);});
+  const removeColour=idx=>{
+    if(palette.length<=1)return;
+    const p2=palette.filter((_,i)=>i!==idx),pc=pcts.filter((_,i)=>i!==idx);
+    const t=pc.reduce((a,b)=>a+b,0);
+    setPalette(p2);setPcts(t>0?pc.map(p=>parseFloat(((p/t)*100).toFixed(1))):pc.map(()=>100/pc.length));
+    if(editingSlot===idx)setEditingSlot(null);
+  };
+  const swapColour=(i,c)=>{setPalette(p=>p.map((x,j)=>j===i?c:x));setEditingSlot(null);};
+  const addColour=c=>{
+    if(palette.length>=3)return;
+    const n=palette.length+1;
+    setPalette(p=>[...p,c]);
+    setPcts(Array(n).fill(parseFloat((100/n).toFixed(1))));
+    setEditingSlot(null);
+  };
+  const pctTotal=pcts.reduce((a,b)=>a+b,0),pctOk=Math.abs(pctTotal-100)<1;
+
+  return(
+    <div>
+      {/* scheme tabs */}
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:"#DFE1DA",marginBottom:7}}>Colour scheme</div>
+        <div style={{display:"flex",gap:5}}>
+          {schemes.map((s,i)=>(
+            <button key={i} onClick={()=>applyScheme(i)}
+              style={{flex:1,padding:"6px 4px",fontSize:9,letterSpacing:"0.07em",textTransform:"uppercase",
+                background:schemeIdx===i?"#1a1a0a":"#141414",color:schemeIdx===i?"#F6FF43":"#555",
+                border:`1px solid ${schemeIdx===i?"#F6FF43":"#222"}`,borderRadius:3,cursor:"pointer",fontFamily:"inherit"}}>
+              {s.name}
+              <div style={{display:"flex",gap:2,marginTop:5,justifyContent:"center"}}>
+                {s.swatches.slice(3,7).map(c=>(<div key={c} style={{width:8,height:8,borderRadius:1,background:c,border:"1px solid #2a2a2a"}}/>))}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* dot colours */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+        <span style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:"#DFE1DA"}}>
+          Dot colour{!singleOnly&&!videoMode&&` (${palette.length}/3)`}
+        </span>
+        {!videoMode&&showPct&&<span style={{fontSize:9,color:pctOk?"#4a9":"#f84"}}>
+          {pctTotal.toFixed(0)}%
+          {!pctOk&&<button onClick={normalizePcts} style={{marginLeft:5,background:"none",border:"none",color:"#f84",cursor:"pointer",fontSize:9,fontFamily:"inherit",padding:0,textDecoration:"underline"}}>normalize</button>}
+        </span>}
+        {videoMode&&<span style={{fontSize:9,color:"#DFE1DA"}}>single only</span>}
+      </div>
+
+      {(singleOnly||videoMode?palette.slice(0,1):palette).map((c,i)=>(
+        <ColourSlot key={i} color={c} pct={pcts[i]??0} isOnly={true}
+          showPct={!singleOnly&&!videoMode&&showPct} isEditing={editingSlot===i}
+          onClick={()=>setEditingSlot(editingSlot===i?null:i)}
+          onPctChange={v=>updatePct(i,v)} onRemove={()=>removeColour(i)}/>
+      ))}
+
+      {editingSlot!==null&&editingSlot!=="bg"&&(
+        <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"9px",marginBottom:8,marginTop:2}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+            <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase"}}>{editingSlot==="new"?"Add colour":"Change colour"}</span>
+            <button onClick={()=>setEditingSlot(null)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,padding:0}}>✕</button>
+          </div>
+          <SwatchPicker swatches={scheme.swatches}
+            selected={editingSlot!=="new"?palette[editingSlot]:null}
+            exclude={editingSlot==="new"?[...palette,bg]:[...palette.filter((_,j)=>j!==editingSlot),bg]}
+            onSelect={c=>{editingSlot==="new"?addColour(c):swapColour(editingSlot,c);}}/>
+        </div>
+      )}
+
+      {palette.length<3&&editingSlot===null&&!videoMode&&!singleOnly&&(
+        <button onClick={()=>setEditingSlot("new")}
+          style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"#141414",border:"1px dashed #DFE1DA",borderRadius:3,cursor:"pointer",color:"#DFE1DA",fontSize:9,letterSpacing:"0.1em",fontFamily:"'IBM Plex Mono',monospace",textTransform:"uppercase",marginBottom:10,width:"100%"}}>
+          <span style={{fontSize:14,lineHeight:1}}>+</span> Add colour
+        </button>
+      )}
+
+      {/* background */}
+      <div style={{borderTop:"1px solid #1a1a1a",paddingTop:10,marginTop:6}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:6}} onClick={()=>setEditingSlot(editingSlot==="bg"?null:"bg")}>
+          <span style={{fontSize:9,color:"#DFE1DA",letterSpacing:"0.1em",textTransform:"uppercase",flexShrink:0}}>Background</span>
+          <div style={{width:20,height:20,borderRadius:3,background:bg,border:editingSlot==="bg"?"2px solid #F6FF43":"1.5px solid #2a2a2a",flexShrink:0}}/>
+          <span style={{fontSize:10,color:"#DFE1DA",fontFamily:"monospace"}}>{bg}</span>
+        </div>
+        {editingSlot==="bg"&&(
+          <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"9px",marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+              <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase"}}>Pick background</span>
+              <button onClick={()=>setEditingSlot(null)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,padding:0}}>✕</button>
+            </div>
+            <SwatchPicker swatches={scheme.swatches} selected={bg} exclude={palette}
+              onSelect={c=>{setBg(c);setEditingSlot(null);}}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Expressive colour panel (full 24) ────────────────────────────────────── */
+function ExpressiveColourPanel({cfg,setC,palette,setPalette,pcts,setPcts,bg,setBg,videoMode}){
+  const[editingSlot,setEditingSlot]=useState(null);
+  const updatePct=(i,v)=>setPcts(prev=>{const n=[...prev];n[i]=Math.max(0,Math.min(100,v));return n;});
+  const normalizePcts=()=>setPcts(prev=>{const t=prev.reduce((a,b)=>a+b,0);return t?prev.map(p=>parseFloat(((p/t)*100).toFixed(1))):prev.map(()=>100/prev.length);});
+  const removeColour=idx=>{
+    if(palette.length<=1)return;
+    const p2=palette.filter((_,i)=>i!==idx),pc=pcts.filter((_,i)=>i!==idx);
+    const t=pc.reduce((a,b)=>a+b,0);
+    setPalette(p2);setPcts(t>0?pc.map(p=>parseFloat(((p/t)*100).toFixed(1))):pc.map(()=>100/pc.length));
+    if(editingSlot===idx)setEditingSlot(null);
+  };
+  const swapColour=(i,c)=>{setPalette(p=>p.map((x,j)=>j===i?c:x));setEditingSlot(null);};
+  const addColour=c=>{
+    if(palette.length>=3)return;
+    const n=palette.length+1;
+    setPalette(p=>[...p,c]);
+    setPcts(Array(n).fill(parseFloat((100/n).toFixed(1))));
+    setEditingSlot(null);
+  };
+  const pctTotal=pcts.reduce((a,b)=>a+b,0),pctOk=Math.abs(pctTotal-100)<1;
+  return(
+    <div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12}}>
+        {["single","weighted","threshold","random"].map(m=>(
+          <Btn key={m} active={cfg.colorMode===m} onClick={()=>setC("colorMode",m)}>{m}</Btn>
+        ))}
+      </div>
+      {(cfg.colorMode==="weighted"||cfg.colorMode==="random")&&<SeedRow label="Color seed" value={cfg.colorSeed} onChange={v=>setC("colorSeed",v)}/>}
+
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+        <span style={{fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",color:"#3a3a3a"}}>
+          Dot colour{!videoMode&&` (${palette.length}/3)`}
+        </span>
+        {!videoMode&&cfg.colorMode==="weighted"&&<span style={{fontSize:9,color:pctOk?"#4a9":"#f84"}}>
+          {pctTotal.toFixed(0)}%
+          {!pctOk&&<button onClick={normalizePcts} style={{marginLeft:5,background:"none",border:"none",color:"#f84",cursor:"pointer",fontSize:9,fontFamily:"inherit",padding:0,textDecoration:"underline"}}>normalize</button>}
+        </span>}
+        {videoMode&&<span style={{fontSize:9,color:"#3a3a3a"}}>single only</span>}
+      </div>
+
+      {(videoMode?palette.slice(0,1):palette).map((c,i)=>(
+        <ColourSlot key={i} color={c} pct={pcts[i]??0} isOnly={palette.length===1||videoMode}
+          showPct={!videoMode&&cfg.colorMode==="weighted"} isEditing={editingSlot===i}
+          onClick={()=>setEditingSlot(editingSlot===i?null:i)}
+          onPctChange={v=>updatePct(i,v)} onRemove={()=>removeColour(i)}/>
+      ))}
+
+      {editingSlot!==null&&editingSlot!=="bg"&&(
+        <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"9px",marginBottom:8,marginTop:2}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+            <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase"}}>{editingSlot==="new"?"Add colour":"Change colour"}</span>
+            <button onClick={()=>setEditingSlot(null)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,padding:0}}>✕</button>
+          </div>
+          <BrandPicker
+            selected={editingSlot!=="new"?palette[editingSlot]:null}
+            exclude={editingSlot==="new"?[...palette,bg]:[...palette.filter((_,j)=>j!==editingSlot),bg]}
+            onSelect={c=>{editingSlot==="new"?addColour(c):swapColour(editingSlot,c);}}/>
+        </div>
+      )}
+
+      {palette.length<3&&editingSlot===null&&!videoMode&&(
+        <button onClick={()=>setEditingSlot("new")}
+          style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"#141414",border:"1px dashed #252525",borderRadius:3,cursor:"pointer",color:"#333",fontSize:9,letterSpacing:"0.1em",fontFamily:"inherit",textTransform:"uppercase",marginBottom:10,width:"100%"}}>
+          <span style={{fontSize:14,lineHeight:1}}>+</span> Add colour
+        </button>
+      )}
+
+      <div style={{borderTop:"1px solid #1a1a1a",paddingTop:10,marginTop:6}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",marginBottom:6}} onClick={()=>setEditingSlot(editingSlot==="bg"?null:"bg")}>
+          <span style={{fontSize:9,color:"#3a3a3a",letterSpacing:"0.1em",textTransform:"uppercase",flexShrink:0}}>Background</span>
+          <div style={{width:20,height:20,borderRadius:3,background:bg,border:editingSlot==="bg"?"2px solid #F6FF43":"1.5px solid #2a2a2a",flexShrink:0}}/>
+          <span style={{fontSize:10,color:"#555",fontFamily:"monospace"}}>{bg}</span>
+        </div>
+        {editingSlot==="bg"&&(
+          <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"9px",marginBottom:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+              <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase"}}>Pick background</span>
+              <button onClick={()=>setEditingSlot(null)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,padding:0}}>✕</button>
+            </div>
+            <BrandPicker selected={bg} exclude={palette} onSelect={c=>{setBg(c);setEditingSlot(null);}}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── App ─────────────────────────────────────────────────────────────────── */
+function App(){
+  const pixelsRef=useRef(null),blurCacheRef=useRef(null);
+  const srcWRef=useRef(0),srcHRef=useRef(0);
+  const isVideoRef=useRef(false),videoRef=useRef(null);
+  const canvasRef=useRef(null),fileRef=useRef(null);
+  const rafRef=useRef(null),recRef=useRef(null),recRafRef=useRef(null);
+  const startTimeRef=useRef(0);
+  const[tick,setTick]=useState(0);
+  const redraw=useCallback(()=>setTick(t=>t+1),[]);
+  const[fileName,setFN]=useState(null);
+  const[status,setStatus]=useState("Drop an image or video to begin — demo mode active");
+  const[hasMedia,setHasMedia]=useState(false);
+  const[isVideo,setIsVideo]=useState(false);
+  const[recording,setRec]=useState(false);
+  const[recSecs,setRecSecs]=useState(5),[recProgress,setRecProgress]=useState(0);
+  const[activePreset,setActivePreset]=useState(0);
+  const[palette,setPalette]=useState([...PRESETS[0].palette]);
+  const[pcts,setPcts]=useState([...PRESETS[0].pcts]);
+  const[bgColor,setBg]=useState(PRESETS[0].bg);
+  const[cfg,setCfg]=useState({...PRESETS[0].cfg});
+  const setC=(k,v)=>setCfg(prev=>({...prev,[k]:v}));
+  const getPixels=()=>blurCacheRef.current||pixelsRef.current;
+  const rebuildBlur=(px,w,h,radius)=>{if(!px||!w||!h){blurCacheRef.current=null;return;}blurCacheRef.current=radius>0?boxBlur(px,w,h,radius):null;};
+  useEffect(()=>{rebuildBlur(pixelsRef.current,srcWRef.current,srcHRef.current,cfg.blurRadius);redraw();},[cfg.blurRadius]);
+  useEffect(()=>{const W=700,H=500;pixelsRef.current=makeDemoPixels(W,H);srcWRef.current=W;srcHRef.current=H;startTimeRef.current=performance.now();redraw();},[]);
+
+  const applyPreset=idx=>{
+    const p=PRESETS[idx];setActivePreset(idx);setCfg({...p.cfg});
+    // Standard always gets exactly one dot colour
+    const pal=p.isStandard?[p.palette[0]]:[...p.palette];
+    const pc=p.isStandard?[100]:[...p.pcts];
+    setPalette(pal);setPcts(pc);setBg(p.bg);redraw();
+  };
+  const setGridSize=useCallback(gs=>{
+    const{minMin,maxMin,minMax,maxMax}=calcDotBounds(gs);
+    setCfg(prev=>{const nMin=Math.max(minMin,Math.min(prev.dotMin,maxMin));const nMax=Math.max(minMax,Math.min(prev.dotMax,maxMax));return{...prev,gridSize:gs,dotMin:parseFloat(nMin.toFixed(1)),dotMax:parseFloat(nMax.toFixed(1))};});
+  },[]);
+
+  const{minMin,maxMin,minMax,maxMax}=calcDotBounds(cfg.gridSize);
+  const cellSizeWarn=cfg.gridSize<6?"Small cells + low-contrast images may appear muddy.":null;
+  const preset=PRESETS[activePreset];
+
+  const handleFile=file=>{
+    if(!file)return;cancelAnimationFrame(rafRef.current);setFN(file.name);setStatus("Reading file…");
+    const isVid=file.type.startsWith("video/")||/\.(mp4|mov|m4v|webm)$/i.test(file.name);
+    isVideoRef.current=isVid;setIsVideo(isVid);
+    if(isVid){
+      setHasMedia(true);setStatus("Loading video…");
+      // switch to Standard + apply video cfg
+      setActivePreset(0);
+      setCfg({...STANDARD_VID_CFG});
+      setPalette(["#141C00"]);setPcts([100]);setBg("#DFE1DA");
+      const vid=videoRef.current;
+      vid.pause();vid.removeAttribute("src");vid.load();
+      vid.onerror=()=>setStatus("Video error — try MP4 H.264");
+      vid.oncanplay=()=>{vid.play().catch(()=>{});setStatus(vid.videoWidth+"×"+vid.videoHeight+" video — playing ✓");startTimeRef.current=performance.now();redraw();};
+      vid.loop=true;vid.muted=true;vid.playsInline=true;vid.src=URL.createObjectURL(file);vid.load();return;
+    }
+    // switching from video to image — restore Standard image cfg
+    if(activePreset===0){
+      setCfg({...STANDARD_IMG_CFG});
+    }
+    const reader=new FileReader();
+    reader.onload=ev=>{const img=new window.Image();img.onload=()=>{
+      try{const MAX=1400;let w=img.naturalWidth,h=img.naturalHeight;if(!w||!h){setStatus("Image has no dimensions");return;}
+        if(w>MAX||h>MAX){const s=MAX/Math.max(w,h);w=Math.round(w*s);h=Math.round(h*s);}
+        const off=document.createElement("canvas");off.width=w;off.height=h;off.getContext("2d").drawImage(img,0,0,w,h);
+        pixelsRef.current=new Uint8ClampedArray(off.getContext("2d").getImageData(0,0,w,h).data);
+        rebuildBlur(pixelsRef.current,w,h,cfg.blurRadius);srcWRef.current=w;srcHRef.current=h;
+        setHasMedia(true);setStatus(w+"×"+h+"px — loaded ✓");startTimeRef.current=performance.now();redraw();
+      }catch(err){setStatus("Error: "+err.message);}
+    };img.onerror=()=>setStatus("Image decode failed");img.src=ev.target.result;};
+    reader.readAsDataURL(file);
+  };
+  const onDrop=e=>{e.preventDefault();const f=e.dataTransfer?.files?.[0];if(f)handleFile(f);};
+
+  useEffect(()=>{
+    const canvas=canvasRef.current;if(!canvas)return;cancelAnimationFrame(rafRef.current);
+    const snapCfg={...cfg,bgColor},snapPalette=[...palette],snapPcts=[...pcts];
+    const needsAnim=(cfg.driftRadius||0)>0||cfg.rippleEnabled;
+    const getTime=()=>(performance.now()-startTimeRef.current)/1000;
+    if(isVideoRef.current){
+      const offV=document.createElement("canvas");let lW=0,lH=0;
+      const loop=()=>{const vid=videoRef.current;if(vid&&vid.readyState>=2&&vid.videoWidth){const vw=vid.videoWidth,vh=vid.videoHeight;if(vw!==lW||vh!==lH){offV.width=vw;offV.height=vh;lW=vw;lH=vh;}const vctx=offV.getContext("2d");vctx.drawImage(vid,0,0,vw,vh);renderDots(canvas,vctx.getImageData(0,0,vw,vh).data,vw,vh,snapCfg,snapPalette,snapPcts,getTime());}rafRef.current=requestAnimationFrame(loop);};
+      rafRef.current=requestAnimationFrame(loop);return()=>cancelAnimationFrame(rafRef.current);
+    }
+    const px=getPixels(),w=srcWRef.current,h=srcHRef.current;if(!px||!w||!h)return;
+    if(needsAnim){const loop=()=>{renderDots(canvas,px,w,h,snapCfg,snapPalette,snapPcts,getTime());rafRef.current=requestAnimationFrame(loop);};rafRef.current=requestAnimationFrame(loop);return()=>cancelAnimationFrame(rafRef.current);}
+    renderDots(canvas,px,w,h,snapCfg,snapPalette,snapPcts,0);
+    return()=>cancelAnimationFrame(rafRef.current);
+  },[tick,cfg,palette,pcts,bgColor]);
+
+  const exportPNG=()=>{const a=document.createElement("a");a.download="cosmos-raster.png";a.href=canvasRef.current.toDataURL("image/png");a.click();};
+  const exportSVGFile=()=>{const px=getPixels(),w=srcWRef.current,h=srcHRef.current;if(!px)return;const svg=buildSVG(px,w,h,{...cfg,bgColor},palette,pcts);const a=document.createElement("a");a.download="cosmos-raster.svg";a.href=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml"}));a.click();};
+  const startRecord=()=>{
+    const px=getPixels(),w=srcWRef.current,h=srcHRef.current;if(!px&&!isVideoRef.current){alert("Load an image or video first.");return;}
+    const FPS=30,snapCfg={...cfg,bgColor},snapPalette=[...palette],snapPcts=[...pcts];
+    const renderCanvas=document.createElement("canvas");
+    const exportCfg=snapCfg.driftRadius>0||snapCfg.rippleEnabled?snapCfg:{...snapCfg,rippleEnabled:true};
+    const mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9")?"video/webm;codecs=vp9":"video/webm";
+    const offV=document.createElement("canvas");let lW=0,lH=0;
+    const stream=renderCanvas.captureStream(FPS);
+    const rec=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:8_000_000});
+    const chunks=[];rec.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data);};
+    rec.onstop=()=>{const blob=new Blob(chunks,{type:"video/webm"});const a=document.createElement("a");a.download="cosmos-raster.webm";a.href=URL.createObjectURL(blob);a.click();setRec(false);setRecProgress(0);cancelAnimationFrame(recRafRef.current);};
+    recRef.current=rec;rec.start(100);setRec(true);setRecProgress(0);
+    const startT=performance.now();
+    const drive=()=>{const elapsed=(performance.now()-startT)/1000;setRecProgress(Math.min(99,Math.round((elapsed/recSecs)*100)));if(isVideoRef.current){const vid=videoRef.current;if(vid&&vid.readyState>=2&&vid.videoWidth){const vw=vid.videoWidth,vh=vid.videoHeight;if(vw!==lW||vh!==lH){offV.width=vw;offV.height=vh;lW=vw;lH=vh;}const vctx=offV.getContext("2d");vctx.drawImage(vid,0,0,vw,vh);renderDots(renderCanvas,vctx.getImageData(0,0,vw,vh).data,vw,vh,snapCfg,snapPalette,snapPcts,elapsed);}}else{renderDots(renderCanvas,px,w,h,exportCfg,snapPalette,snapPcts,elapsed);}if(elapsed<recSecs)recRafRef.current=requestAnimationFrame(drive);else rec.stop();};
+    recRafRef.current=requestAnimationFrame(drive);
+  };
+  const stopRecord=()=>{cancelAnimationFrame(recRafRef.current);recRef.current?.stop();};
+
+  return(
+    <div style={{display:"flex",height:"100vh",background:"#080808",overflow:"hidden",fontFamily:"'IBM Plex Mono',monospace"}}>
+      <video ref={videoRef} style={{position:"fixed",top:0,left:0,width:1,height:1,opacity:0,pointerEvents:"none"}} playsInline preload="auto" muted loop/>
+      <div style={{width:272,minWidth:272,height:"100vh",overflowY:"auto",background:"#0d0d0d",borderRight:"1px solid #1c1c1c",padding:"18px 15px",boxSizing:"border-box",color:"#ccc"}}>
+
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#F6FF43",letterSpacing:"0.06em"}}>COSMOS Playground</div>
+          <div style={{fontSize:9,color:"#3a3a3a",letterSpacing:"0.1em",marginTop:3}}>Halftone dot renderer</div>
+        </div>
+
+        {/* PRESETS */}
+        <div style={SEC}>
+          <span style={LBL}>Presets</span>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {PRESETS.map((p,i)=>{
+              const locked=isVideo&&i!==0;
+              return(
+              <button key={i} onClick={()=>!locked&&applyPreset(i)} disabled={locked}
+                style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 11px",
+                  background:activePreset===i?"#1a1a0a":"#141414",
+                  border:`1px solid ${activePreset===i?"#F6FF43":"#222"}`,
+                  borderRadius:4,cursor:locked?"not-allowed":"pointer",fontFamily:"monospace",textAlign:"left",width:"100%",
+                  opacity:locked?0.3:1}}>
+                <div>
+                  <div style={{fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",color:activePreset===i?"#F6FF43":"#DFE1DA"}}>{p.name}</div>
+                  <div style={{fontSize:9,color:"#DFE1DA",marginTop:2,opacity:activePreset===i?1:0.5}}>{p.desc}</div>
+                </div>
+                <div style={{display:"flex",gap:3,flexShrink:0,marginLeft:8}}>
+                  {p.palette.map((c,j)=>(<div key={j} style={{width:10,height:10,borderRadius:2,background:c,border:"1px solid #2a2a2a"}}/>))}
+                  <div style={{width:10,height:10,borderRadius:2,background:p.bg,border:"1px solid #2a2a2a"}}/>
+                </div>
+              </button>
+              );
+            })}
+          </div>
+          {isVideo&&<div style={{fontSize:9,color:"#DFE1DA",marginTop:8,lineHeight:1.6,opacity:0.5}}>Standard only available for video input</div>}
+          <div style={{fontSize:8,color:"#DFE1DA",marginTop:8,lineHeight:1.6,opacity:0.4}}>Selecting a preset resets all settings</div>
+        </div>
+
+        {/* INPUT */}
+        <div style={SEC}>
+          <span style={LBL}>Input</span>
+          <div onDrop={onDrop} onDragOver={e=>e.preventDefault()} onClick={()=>fileRef.current.click()}
+            style={{border:"1px dashed #DFE1DA",borderRadius:4,padding:"12px 8px",textAlign:"center",cursor:"pointer",fontSize:9,color:"#DFE1DA",letterSpacing:"0.07em",lineHeight:2,userSelect:"none"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="#F6FF43";e.currentTarget.style.color="#F6FF43";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="#DFE1DA";e.currentTarget.style.color="#DFE1DA";}}>
+            {fileName?<span style={{color:"#DFE1DA"}}>{fileName.length>25?fileName.slice(0,23)+"…":fileName}</span>:<span>DROP IMAGE / VIDEO<br/>or click to browse</span>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*,video/mp4,video/quicktime,.mp4,.mov,.m4v,.webm" style={{display:"none"}} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value="";}}/>
+          <div style={{fontSize:9,color:status.includes("✓")?"#4a9":status.includes("error")||status.includes("failed")?"#f84":"#DFE1DA",marginTop:6,lineHeight:1.6}}>{status}</div>
+          <div style={{fontSize:8,color:"#DFE1DA",marginTop:4}}>Images: JPG PNG WEBP · Video: MP4 MOV WEBM</div>
+        </div>
+
+        {/* IMAGE ADJUST */}
+        <div style={SEC}>
+          <span style={LBL}>Image Adjust</span>
+          <Toggle label="Invert" value={cfg.invert} onChange={v=>setC("invert",v)}/>
+          <div style={{height:1,background:"#1a1a1a",margin:"2px 0 14px"}}/>
+          <Slider label="Black point" value={cfg.blackPt} min={0} max={0.95} step={0.01} onChange={v=>setC("blackPt",Math.min(v,cfg.whitePt-0.05))} display={Math.round(cfg.blackPt*255)}/>
+          <Slider label="White point" value={cfg.whitePt} min={0.05} max={1} step={0.01} onChange={v=>setC("whitePt",Math.max(v,cfg.blackPt+0.05))} display={Math.round(cfg.whitePt*255)}/>
+          <Slider label="Gamma" value={cfg.gamma} min={0.2} max={3} step={0.05} onChange={v=>setC("gamma",v)} display={cfg.gamma.toFixed(2)}/>
+          <div style={{height:1,background:"#1a1a1a",margin:"0 0 14px"}}/>
+          <Slider label="Blur" value={cfg.blurRadius} min={0} max={20} step={0.5} onChange={v=>setC("blurRadius",v)} display={cfg.blurRadius>0?cfg.blurRadius.toFixed(1)+"px":"off"}/>
+        </div>
+
+        {/* GRID */}
+        <div style={SEC}>
+          <span style={LBL}>Grid</span>
+          <Slider label="Cell size" value={cfg.gridSize} min={4} max={60} onChange={setGridSize} display={Math.round(cfg.gridSize)+"px"} warn={cellSizeWarn}/>
+          <Slider label="Dot min" value={cfg.dotMin} min={minMin} max={parseFloat(maxMin.toFixed(1))} step={0.1} onChange={v=>setC("dotMin",Math.min(v,cfg.dotMax-0.2))} display={cfg.dotMin.toFixed(1)}/>
+          <Slider label="Dot max" value={cfg.dotMax} min={parseFloat(minMax.toFixed(1))} max={parseFloat(maxMax.toFixed(1))} step={0.5} onChange={v=>setC("dotMax",Math.max(v,cfg.dotMin+0.2))} display={cfg.dotMax.toFixed(1)+(cfg.dotMax>cfg.gridSize?" ↑":"")}/>
+          {cfg.dotMax>cfg.gridSize&&<div style={{fontSize:9,color:"#5a7a5a",marginTop:-8,marginBottom:10,lineHeight:1.5}}>Dots overlap cells — print-press feel active</div>}
+        </div>
+
+        {/* GRID RANDOMNESS */}
+        <div style={SEC}>
+          <span style={LBL}>Grid Randomness</span>
+          <Slider label="Jitter" value={cfg.gridJitter} min={0} max={1} step={0.01} onChange={v=>setC("gridJitter",v)} display={Math.round(cfg.gridJitter*100)+"%"}/>
+          <Slider label="Offset magnitude" value={cfg.offsetMag} min={0} max={30} step={0.5} onChange={v=>setC("offsetMag",v)} display={cfg.offsetMag.toFixed(1)+"px"}/>
+          <Slider label="Offset frequency" value={cfg.offsetFreq} min={0.01} max={1} step={0.01} onChange={v=>setC("offsetFreq",v)} display={cfg.offsetFreq.toFixed(2)}/>
+          <SeedRow label="Grid seed" value={cfg.gridSeed} onChange={v=>setC("gridSeed",v)}/>
+          <div style={{borderTop:"1px solid #161616",paddingTop:12,marginTop:2}}>
+            <span style={{fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",color:cfg.driftRadius>0?"#F6FF43":"#3a3a3a",display:"block",marginBottom:9}}>Organic Drift {cfg.driftRadius>0&&"●"}</span>
+            <Slider label="Drift radius" value={cfg.driftRadius} min={0} max={40} step={0.5} onChange={v=>setC("driftRadius",v)} display={cfg.driftRadius>0?cfg.driftRadius.toFixed(1)+"px":"off"}/>
+            {cfg.driftRadius>0&&<Slider label="Drift speed" value={cfg.driftSpeed} min={0.05} max={3} step={0.05} onChange={v=>setC("driftSpeed",v)} display={cfg.driftSpeed.toFixed(2)+"×"}/>}
+          </div>
+        </div>
+
+        {/* RIPPLE */}
+        <div style={SEC}>
+          <span style={{...LBL,color:cfg.rippleEnabled?"#F6FF43":"#3a3a3a"}}>Radial Ripple {cfg.rippleEnabled&&"●"}</span>
+          <Toggle label="Enable ripple" value={cfg.rippleEnabled} onChange={v=>setC("rippleEnabled",v)}/>
+          {cfg.rippleEnabled&&<>
+            <Slider label="Speed" value={cfg.rippleSpeed} min={0.1} max={3} step={0.05} onChange={v=>setC("rippleSpeed",v)} display={cfg.rippleSpeed.toFixed(2)+"×"}/>
+            <Slider label="Peak strength" value={cfg.rippleStrength} min={1.1} max={6} step={0.1} onChange={v=>setC("rippleStrength",v)} display={cfg.rippleStrength.toFixed(1)+"×"}/>
+            <Slider label="Ring width" value={cfg.rippleWidth} min={0.02} max={0.5} step={0.01} onChange={v=>setC("rippleWidth",v)} display={Math.round(cfg.rippleWidth*100)+"%"}/>
+            <Slider label="Wake decay" value={cfg.rippleDecay} min={0} max={1} step={0.05} onChange={v=>setC("rippleDecay",v)} display={cfg.rippleDecay.toFixed(2)}/>
+          </>}
+        </div>
+
+        {/* GRID LAYOUT */}
+        <div style={SEC}>
+          <span style={LBL}>Grid Layout</span>
+          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+            {[["square","⊞ Square"],["hex","⬡ Hex"],["radial","◎ Radial"]].map(([s,lbl])=>(
+              <Btn key={s} active={cfg.layout===s} onClick={()=>setC("layout",s)}>{lbl}</Btn>
+            ))}
+          </div>
+        </div>
+
+        {/* COLOUR */}
+        <div style={SEC}>
+          <span style={LBL}>Color Mode</span>
+          {preset.isStandard&&
+            <SchemeColourPanel schemes={STANDARD_SCHEMES} palette={palette} pcts={pcts} bg={bgColor}
+              setPalette={setPalette} setPcts={setPcts} setBg={setBg} videoMode={isVideo} showPct={false} singleOnly={true}/>}
+          {preset.isBold&&
+            <SchemeColourPanel schemes={BOLD_SCHEMES} palette={palette} pcts={pcts} bg={bgColor}
+              setPalette={setPalette} setPcts={setPcts} setBg={setBg} videoMode={isVideo} showPct={true}/>}
+          {preset.isExpressive&&
+            <ExpressiveColourPanel cfg={cfg} setC={setC} palette={palette} setPalette={setPalette}
+              pcts={pcts} setPcts={setPcts} bg={bgColor} setBg={setBg} videoMode={isVideo}/>}
+        </div>
+
+        {/* EXPORT */}
+        <div style={{paddingBottom:24}}>
+          <span style={LBL}>Export</span>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+            <Btn onClick={exportPNG} sx={{color:"#8AA8A8",borderColor:"#8AA8A8"}}>↓ PNG</Btn>
+            <Btn onClick={exportSVGFile} sx={{color:"#80896B",borderColor:"#80896B"}}>↓ SVG</Btn>
+          </div>
+          <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"10px 10px 8px"}}>
+            <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>Video Export (WebM)</div>
+            <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:8,flexWrap:"wrap"}}>
+              <span style={{fontSize:9,color:"#555",flexShrink:0}}>Duration</span>
+              {[3,5,10,15,30].map(s=>(<button key={s} onClick={()=>setRecSecs(s)} style={{padding:"3px 6px",fontSize:9,background:recSecs===s?"#F6FF43":"#181818",color:recSecs===s?"#111":"#444",border:"1px solid "+(recSecs===s?"#F6FF43":"#2a2a2a"),borderRadius:3,cursor:"pointer",fontFamily:"inherit"}}>{s}s</button>))}
+            </div>
+            <Btn onClick={recording?stopRecord:startRecord} active={recording} sx={{width:"100%",justifyContent:"center",padding:"7px",color:recording?"#111":"#4a9",borderColor:recording?"#F6FF43":"#4a9",background:recording?"#F6FF43":"#111"}}>
+              {recording?"⏹ Stop":"⏺ Record "+recSecs+"s WebM"}
+            </Btn>
+            {recording&&<div style={{marginTop:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                <span style={{fontSize:9,color:"#F6FF43"}}>● RECORDING…</span>
+                <span style={{fontSize:9,color:"#F6FF43"}}>{recProgress}%</span>
+              </div>
+              <div style={{height:3,background:"#1a1a1a",borderRadius:2}}>
+                <div style={{height:3,background:"#F6FF43",borderRadius:2,width:recProgress+"%",transition:"width 0.3s"}}/>
+              </div>
+            </div>}
+            <div style={{marginTop:6,fontSize:8,color:"#252525",lineHeight:1.6}}>Exports .webm · plays in Chrome, Firefox, VLC</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",background:"#080808",position:"relative"}}>
+        <canvas ref={canvasRef} style={{display:"block",maxWidth:"100%",maxHeight:"100vh",objectFit:"contain"}}/>
+        {!hasMedia&&<div style={{position:"absolute",bottom:22,left:"50%",transform:"translateX(-50%)",fontSize:9,color:"#1e1e1e",letterSpacing:"0.12em",pointerEvents:"none",whiteSpace:"nowrap"}}>DEMO MODE — drop an image or video to begin</div>}
+      </div>
+
+      <style>{`
+        body{background:#080808;overflow:hidden;}
+        ::-webkit-scrollbar{width:3px;}::-webkit-scrollbar-thumb{background:#1e1e1e;}
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');
+        input.rng{-webkit-appearance:none;appearance:none;height:3px;border-radius:2px;background:#222;outline:none;border:none;display:block;}
+        input.rng::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#F6FF43;cursor:pointer;border:2px solid #0d0d0d;margin-top:-5px;}
+        input.rng::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#F6FF43;cursor:pointer;border:2px solid #0d0d0d;}
+        input.rng::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#222;}
+        input[type=number]::-webkit-inner-spin-button{opacity:1;}
+      `}</style>
+    </div>
+  );
+}
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(App));
+</script>
+</body>
+</html>
