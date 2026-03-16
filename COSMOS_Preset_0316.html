@@ -414,7 +414,7 @@ function SchemeColourPanel({schemes,palette,pcts,bg,setPalette,setPcts,setBg,vid
       {editingSlot!==null&&editingSlot!=="bg"&&(
         <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"9px",marginBottom:8,marginTop:2}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-            <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase"}}>{editingSlot==="new"?"Add colour":"Change colour"}</span>
+            <span style={{fontSize:9,color:"#DFE1DA",letterSpacing:"0.1em",textTransform:"uppercase"}}>{editingSlot==="new"?"Add colour":"Change colour"}</span>
             <button onClick={()=>setEditingSlot(null)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,padding:0}}>✕</button>
           </div>
           <SwatchPicker swatches={scheme.swatches}
@@ -441,7 +441,7 @@ function SchemeColourPanel({schemes,palette,pcts,bg,setPalette,setPcts,setBg,vid
         {editingSlot==="bg"&&(
           <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"9px",marginBottom:6}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
-              <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",textTransform:"uppercase"}}>Pick background</span>
+              <span style={{fontSize:9,color:"#DFE1DA",letterSpacing:"0.1em",textTransform:"uppercase"}}>Pick background</span>
               <button onClick={()=>setEditingSlot(null)} style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:11,padding:0}}>✕</button>
             </div>
             <SwatchPicker swatches={scheme.swatches} selected={bg} exclude={palette}
@@ -664,6 +664,20 @@ function App(){
           <div style={{fontSize:9,color:"#3a3a3a",letterSpacing:"0.1em",marginTop:3}}>Halftone dot renderer</div>
         </div>
 
+        {/* INPUT */}
+        <div style={SEC}>
+          <span style={LBL}>Input</span>
+          <div onDrop={onDrop} onDragOver={e=>e.preventDefault()} onClick={()=>fileRef.current.click()}
+            style={{border:"1px dashed #DFE1DA",borderRadius:4,padding:"12px 8px",textAlign:"center",cursor:"pointer",fontSize:9,color:"#DFE1DA",letterSpacing:"0.07em",lineHeight:2,userSelect:"none"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="#F6FF43";e.currentTarget.style.color="#F6FF43";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="#DFE1DA";e.currentTarget.style.color="#DFE1DA";}}>
+            {fileName?<span style={{color:"#DFE1DA"}}>{fileName.length>25?fileName.slice(0,23)+"…":fileName}</span>:<span>DROP IMAGE / VIDEO<br/>or click to browse</span>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*,video/mp4,video/quicktime,.mp4,.mov,.m4v,.webm" style={{display:"none"}} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value="";}}/>
+          <div style={{fontSize:9,color:status.includes("✓")?"#4a9":status.includes("error")||status.includes("failed")?"#f84":"#DFE1DA",marginTop:6,lineHeight:1.6}}>{status}</div>
+          <div style={{fontSize:8,color:"#DFE1DA",marginTop:4}}>Images: JPG PNG WEBP · Video: MP4 MOV WEBM</div>
+        </div>
+
         {/* PRESETS */}
         <div style={SEC}>
           <span style={LBL}>Presets</span>
@@ -691,20 +705,6 @@ function App(){
           </div>
           {isVideo&&<div style={{fontSize:9,color:"#DFE1DA",marginTop:8,lineHeight:1.6,opacity:0.5}}>Standard only available for video input</div>}
           <div style={{fontSize:8,color:"#DFE1DA",marginTop:8,lineHeight:1.6,opacity:0.4}}>Selecting a preset resets all settings</div>
-        </div>
-
-        {/* INPUT */}
-        <div style={SEC}>
-          <span style={LBL}>Input</span>
-          <div onDrop={onDrop} onDragOver={e=>e.preventDefault()} onClick={()=>fileRef.current.click()}
-            style={{border:"1px dashed #DFE1DA",borderRadius:4,padding:"12px 8px",textAlign:"center",cursor:"pointer",fontSize:9,color:"#DFE1DA",letterSpacing:"0.07em",lineHeight:2,userSelect:"none"}}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor="#F6FF43";e.currentTarget.style.color="#F6FF43";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor="#DFE1DA";e.currentTarget.style.color="#DFE1DA";}}>
-            {fileName?<span style={{color:"#DFE1DA"}}>{fileName.length>25?fileName.slice(0,23)+"…":fileName}</span>:<span>DROP IMAGE / VIDEO<br/>or click to browse</span>}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*,video/mp4,video/quicktime,.mp4,.mov,.m4v,.webm" style={{display:"none"}} onChange={e=>{if(e.target.files[0])handleFile(e.target.files[0]);e.target.value="";}}/>
-          <div style={{fontSize:9,color:status.includes("✓")?"#4a9":status.includes("error")||status.includes("failed")?"#f84":"#DFE1DA",marginTop:6,lineHeight:1.6}}>{status}</div>
-          <div style={{fontSize:8,color:"#DFE1DA",marginTop:4}}>Images: JPG PNG WEBP · Video: MP4 MOV WEBM</div>
         </div>
 
         {/* IMAGE ADJUST */}
@@ -736,7 +736,7 @@ function App(){
           <Slider label="Offset frequency" value={cfg.offsetFreq} min={0.01} max={1} step={0.01} onChange={v=>setC("offsetFreq",v)} display={cfg.offsetFreq.toFixed(2)}/>
           <SeedRow label="Grid seed" value={cfg.gridSeed} onChange={v=>setC("gridSeed",v)}/>
           <div style={{borderTop:"1px solid #161616",paddingTop:12,marginTop:2}}>
-            <span style={{fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",color:cfg.driftRadius>0?"#F6FF43":"#3a3a3a",display:"block",marginBottom:9}}>Organic Drift {cfg.driftRadius>0&&"●"}</span>
+            <span style={{fontSize:9,letterSpacing:"0.15em",textTransform:"uppercase",color:cfg.driftRadius>0?"#F6FF43":"#DFE1DA",display:"block",marginBottom:9}}>Organic Drift {cfg.driftRadius>0&&"●"}</span>
             <Slider label="Drift radius" value={cfg.driftRadius} min={0} max={40} step={0.5} onChange={v=>setC("driftRadius",v)} display={cfg.driftRadius>0?cfg.driftRadius.toFixed(1)+"px":"off"}/>
             {cfg.driftRadius>0&&<Slider label="Drift speed" value={cfg.driftSpeed} min={0.05} max={3} step={0.05} onChange={v=>setC("driftSpeed",v)} display={cfg.driftSpeed.toFixed(2)+"×"}/>}
           </div>
@@ -744,7 +744,7 @@ function App(){
 
         {/* RIPPLE */}
         <div style={SEC}>
-          <span style={{...LBL,color:cfg.rippleEnabled?"#F6FF43":"#3a3a3a"}}>Radial Ripple {cfg.rippleEnabled&&"●"}</span>
+          <span style={{...LBL,color:cfg.rippleEnabled?"#F6FF43":"#DFE1DA"}}>Radial Ripple {cfg.rippleEnabled&&"●"}</span>
           <Toggle label="Enable ripple" value={cfg.rippleEnabled} onChange={v=>setC("rippleEnabled",v)}/>
           {cfg.rippleEnabled&&<>
             <Slider label="Speed" value={cfg.rippleSpeed} min={0.1} max={3} step={0.05} onChange={v=>setC("rippleSpeed",v)} display={cfg.rippleSpeed.toFixed(2)+"×"}/>
@@ -786,10 +786,10 @@ function App(){
             <Btn onClick={exportSVGFile} sx={{color:"#80896B",borderColor:"#80896B"}}>↓ SVG</Btn>
           </div>
           <div style={{background:"#111",border:"1px solid #1e1e1e",borderRadius:4,padding:"10px 10px 8px"}}>
-            <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8}}>Video Export (WebM)</div>
+            <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:8,color:"#DFE1DA"}}>Video Export (WebM)</div>
             <div style={{display:"flex",alignItems:"center",gap:4,marginBottom:8,flexWrap:"wrap"}}>
-              <span style={{fontSize:9,color:"#555",flexShrink:0}}>Duration</span>
-              {[3,5,10,15,30].map(s=>(<button key={s} onClick={()=>setRecSecs(s)} style={{padding:"3px 6px",fontSize:9,background:recSecs===s?"#F6FF43":"#181818",color:recSecs===s?"#111":"#444",border:"1px solid "+(recSecs===s?"#F6FF43":"#2a2a2a"),borderRadius:3,cursor:"pointer",fontFamily:"inherit"}}>{s}s</button>))}
+              <span style={{fontSize:9,color:"#DFE1DA",flexShrink:0}}>Duration</span>
+              {[3,5,10,15,30].map(s=>(<button key={s} onClick={()=>setRecSecs(s)} style={{padding:"3px 6px",fontSize:9,background:recSecs===s?"#F6FF43":"#181818",color:recSecs===s?"#111":"#DFE1DA",border:"1px solid "+(recSecs===s?"#F6FF43":"#2a2a2a"),borderRadius:3,cursor:"pointer",fontFamily:"inherit"}}>{s}s</button>))}
             </div>
             <Btn onClick={recording?stopRecord:startRecord} active={recording} sx={{width:"100%",justifyContent:"center",padding:"7px",color:recording?"#111":"#4a9",borderColor:recording?"#F6FF43":"#4a9",background:recording?"#F6FF43":"#111"}}>
               {recording?"⏹ Stop":"⏺ Record "+recSecs+"s WebM"}
@@ -803,7 +803,7 @@ function App(){
                 <div style={{height:3,background:"#F6FF43",borderRadius:2,width:recProgress+"%",transition:"width 0.3s"}}/>
               </div>
             </div>}
-            <div style={{marginTop:6,fontSize:8,color:"#252525",lineHeight:1.6}}>Exports .webm · plays in Chrome, Firefox, VLC</div>
+              <div style={{fontSize:9,color:"#DFE1DA",marginTop:6,fontSize:8,color:"#252525",lineHeight:1.6}}>Exports .webm · plays in Chrome, Firefox, VLC</div>
           </div>
         </div>
       </div>
